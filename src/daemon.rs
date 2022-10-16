@@ -1,9 +1,8 @@
-use crate::api::{IdError, PatchError, Response, UpdateError};
-use crate::api::{Request as ApiRequest, Response as ApiResponse};
+use crate::api::{Client, IdError, Request as ApiRequest, Response as ApiResponse, UpdateError};
 use crate::behaviour::{
-    self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel, PatchResponseUpdateError,
+    self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel,
+    PatchResponseUpdateError,
 };
-use crate::client::Client;
 use crate::database::Database;
 use crate::git::{Commit, Repository};
 
@@ -29,6 +28,7 @@ where
     R: Repository,
     C: Client,
 {
+    swarm_listen: Multiaddr,
     swarm: Swarm<Behaviour>,
     cmd_stream: S,
     database: D,
@@ -45,6 +45,7 @@ where
     C: Client,
 {
     pub async fn new(
+        swarm_listen: Multiaddr,
         keypair: Keypair,
         cmd_stream: S,
         database: D,
@@ -59,6 +60,7 @@ where
         };
         let swarm = Swarm::new(transport, behaviour, peer_id);
         Ok(Self {
+            swarm_listen,
             swarm,
             cmd_stream,
             database,
@@ -68,8 +70,8 @@ where
         })
     }
 
-    pub async fn start(&mut self, swarm_addr: Multiaddr) -> Result<(), Box<dyn Error>> {
-        self.swarm.listen_on(swarm_addr)?;
+    pub async fn start(&mut self) -> Result<(), Box<dyn Error>> {
+        self.swarm.listen_on(self.swarm_listen.clone())?;
         loop {
             use behaviour::Event::*;
             use libp2p::core::ConnectedPoint;

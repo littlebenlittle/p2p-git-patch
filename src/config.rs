@@ -16,7 +16,9 @@ pub struct Config {
     /// Path to file for peer database table
     pub database_path: PathBuf,
     /// listen address for swarm
-    pub listen: Multiaddr,
+    pub swarm_listen: Multiaddr,
+    /// listen adderr for api
+    pub api_listen: Multiaddr,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -28,7 +30,9 @@ struct ConfigSerde {
     /// Path to file for peer database table
     database_path: String,
     /// listen address for swarm
-    listen: String,
+    swarm_listen: String,
+    /// listen address for api
+    api_listen: String,
 }
 
 impl Config {
@@ -48,7 +52,8 @@ impl TryFrom<ConfigSerde> for Config {
             keypair: Keypair::Ed25519(keypair),
             repo_dir: PathBuf::from(config.repo_dir),
             database_path: PathBuf::from(config.database_path),
-            listen: config.listen.parse()?,
+            swarm_listen: config.swarm_listen.parse()?,
+            api_listen: config.api_listen.parse()?,
         })
     }
 }
@@ -64,18 +69,20 @@ impl From<&Config> for ConfigSerde {
             ),
             repo_dir: config.repo_dir.to_str().unwrap().to_owned(),
             database_path: config.database_path.to_str().unwrap().to_owned(),
-            listen: config.listen.to_string(),
+            swarm_listen: config.swarm_listen.to_string(),
+            api_listen: config.api_listen.to_string(),
         }
     }
 }
 
 impl Config {
-    pub fn new(repo_dir: String, db_path: String, listen: Multiaddr) -> Self {
+    pub fn new(repo_dir: String, db_path: String, swarm_listen: Multiaddr, api_listen: Multiaddr) -> Self {
         Self {
             keypair: Keypair::generate_ed25519(),
             repo_dir: PathBuf::from(repo_dir),
             database_path: PathBuf::from(db_path),
-            listen,
+            swarm_listen,
+            api_listen,
         }
     }
 

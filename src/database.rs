@@ -1,3 +1,7 @@
+mod yaml;
+
+pub use yaml::Database as YamlDatabase;
+
 use libp2p::PeerId;
 use crate::git::Commit;
 

@@ -1,26 +1,12 @@
-use libp2p::PeerId;
+mod unix_socket;
+mod protocol;
 
-pub enum Request {
-    /// Sync metadata with peer
-    Update { peer: PeerId },
-    /// Request patch from peer
-    Patch { peer: PeerId, commit_id: git2::Oid },
-    /// Show peer id
-    /// If no peer nickname provided, show own peer id
-    Id { nickname: Option<String> },
-}
+pub use unix_socket::Server as UnixSocketServer;
 
-pub enum Response {
-    Update(Result<(), UpdateError>),
-    Patch(Result<(), PatchError>),
-    Id(Result<PeerId, IdError>)
+pub use protocol::{Request, Response, IdError, UpdateError, PatchError};
+
+pub trait Client  {
+    fn send_response(&mut self, response: Response);
 }
 
-// TODO
-pub enum UpdateError {
-    UnknownPeerId
-}
-pub enum PatchError {}
-pub enum IdError {
-    UnknownNickname
-}
+pub enum Error {}

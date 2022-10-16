@@ -1,3 +1,6 @@
+mod eager;
+
+pub use eager::Repository as EagerRepository;
 
 pub trait Repository {
     type CommitIter: Iterator<Item = Commit>;

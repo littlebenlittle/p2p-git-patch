@@ -27,12 +27,10 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct InitCmd {
-    #[clap(short)]
     pub repo: String,
-    #[clap(short)]
     pub db_path: String,
-    #[clap(short)]
-    pub listen: String,
+    pub swarm_listen: String,
+    pub api_listen: String,
 }
 
 #[derive(Debug, Args)]
