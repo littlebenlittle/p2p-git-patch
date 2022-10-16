@@ -1,6 +1,4 @@
-use super::{Client as ClientTrait, Request, Response};
-
-use libp2p::Multiaddr;
+use super::{Client, Server as ServerTrait, Request};
 
 use futures::stream::FusedStream;
 use futures::stream::Stream;
@@ -18,12 +16,9 @@ impl Server {
     }
 }
 
-impl TryFrom<Multiaddr> for Server {
-    type Error = Box<dyn Error>;
-    fn try_from(addr: Multiaddr) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
+impl ServerTrait for Server {}
+
+impl Unpin for Server {}
 
 impl Stream for Server {
     type Item = (Client, Request);
@@ -34,14 +29,6 @@ impl Stream for Server {
 
 impl FusedStream for Server {
     fn is_terminated(&self) -> bool {
-        unimplemented!()
-    }
-}
-
-pub struct Client {}
-
-impl ClientTrait for Client {
-    fn send_response(&mut self, response: Response) {
         unimplemented!()
     }
 }

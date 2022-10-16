@@ -1,4 +1,4 @@
-use crate::api::{Client, IdError, Request as ApiRequest, Response as ApiResponse, UpdateError};
+use crate::api::{Client as ApiClient, Server as ApiServer, IdError, Request as ApiRequest, Response as ApiResponse, UpdateError};
 use crate::behaviour::{
     self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel,
     PatchResponseUpdateError,
@@ -16,38 +16,33 @@ use libp2p::{
     Swarm,
 };
 
-use futures::stream::FusedStream;
 use futures::stream::StreamExt;
 use std::collections::HashMap;
 use std::{error::Error, io};
 
-pub struct Service<S, D, R, C>
+pub struct Service<D, R>
 where
-    S: FusedStream<Item = (C, ApiRequest)> + Unpin,
     D: Database,
     R: Repository,
-    C: Client,
 {
     swarm_listen: Multiaddr,
     swarm: Swarm<Behaviour>,
-    cmd_stream: S,
+    api_server: Box<dyn ApiServer>,
     database: D,
     repository: R,
-    api_response_queue: Vec<(C, ApiResponse)>,
-    pending_update_requests: HashMap<RequestId, C>,
+    api_response_queue: Vec<(ApiClient, ApiResponse)>,
+    pending_update_requests: HashMap<RequestId, ApiClient>,
 }
 
-impl<S, D, R, C> Service<S, D, R, C>
+impl<D, R> Service<D, R>
 where
-    S: FusedStream<Item = (C, ApiRequest)> + Unpin,
     D: Database,
     R: Repository,
-    C: Client,
 {
     pub async fn new(
         swarm_listen: Multiaddr,
         keypair: Keypair,
-        cmd_stream: S,
+        api_server: Box<dyn ApiServer>,
         database: D,
         repository: R,
     ) -> Result<Self, io::Error> {
@@ -62,7 +57,7 @@ where
         Ok(Self {
             swarm_listen,
             swarm,
-            cmd_stream,
+            api_server,
             database,
             repository,
             api_response_queue: Vec::new(),
@@ -78,7 +73,7 @@ where
             use libp2p::swarm::SwarmEvent::*;
             use ApiRequest::*;
             futures::select! {
-                (client, cmd) = self.cmd_stream.select_next_some() => match cmd {
+                (client, cmd) = self.api_server.select_next_some() => match cmd {
                     Update { peer } => self.update(peer, client),
                     Patch { peer, commit_id } => self.patch(peer, commit_id),
                     Id { nickname } => self.id(nickname, client)
@@ -120,9 +115,9 @@ where
     }
 
     // ---------------- Update Handlers ----------------
-    fn update(&mut self, peer: PeerId, mut client: C) {
+    fn update(&mut self, peer: PeerId, mut client: ApiClient) {
         if !self.database.contains(peer) {
-            client.send_response(ApiResponse::Update(Err(UpdateError::UnknownPeerId)))
+            client.send(ApiResponse::Update(Err(UpdateError::UnknownPeerId)));
         }
         let mrca = self
             .database
@@ -175,7 +170,7 @@ where
         error: behaviour::UpdateResult,
     ) {
         if let Some(client) = self.pending_update_requests.get_mut(&request_id) {
-            client.send_response(ApiResponse::Update(Ok(())));
+            client.send(ApiResponse::Update(Ok(())));
         } else {
             log::info!("unknown request_id: {}", request_id);
         }
@@ -197,7 +192,7 @@ where
 
     // ---------------- Id Handler ----------------
 
-    fn id(&mut self, nickname: Option<String>, client: C) {
+    fn id(&mut self, nickname: Option<String>, client: ApiClient) {
         let response = if let Some(nickname) = nickname {
             let peer = self.database.get_peer_id_from_nickname(&nickname);
             if let Some(peer) = peer {

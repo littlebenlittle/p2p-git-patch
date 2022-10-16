@@ -6,7 +6,7 @@ mod daemon;
 mod database;
 mod git;
 
-use api::UnixSocketServer;
+use api::Server;
 use cli::Cli;
 use config::Config;
 use daemon::Service;
@@ -46,22 +46,63 @@ fn main() -> Result<(), Box<dyn Error>> {
         cli::Command::Daemon(cmd) => {
             let config = Config::from_path(cli.config)?;
             if cmd.foreground {
-                async_std::task::block_on(async move {
-                    let cmd_stream = UnixSocketServer::try_from(config.api_listen)?;
-                    let database = YamlDatabase::new(config.database_path)?;
-                    let repository = EagerRepository::new(config.repo_dir)?;
-                    let mut service = Service::new(
-                        config.swarm_listen,
-                        config.keypair,
-                        cmd_stream,
-                        database,
-                        repository,
-                    )
-                    .await?;
-                    service.start().await
-                });
+                async_std::task::block_on(async move { run_daemon(config).await });
+            } else {
+                println!("background daemon unimplemented")
             }
         }
     }
     Ok(())
+}
+
+async fn run_daemon(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let api_server = Box::<dyn Server>::try_from(config.api_listen)?;
+    let database = YamlDatabase::new(config.database_path)?;
+    let repository = EagerRepository::new(config.repo_dir)?;
+    let mut service = Service::new(
+        config.swarm_listen,
+        config.keypair,
+        api_server,
+        database,
+        repository,
+    )
+    .await?;
+    service.start().await
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    /// daemon can be started
+    #[test]
+    fn can_run_daemon() {
+        unimplemented!();
+    }
+
+    /// two daemons can find each other on loopback device via mdns
+    #[test]
+    fn daemons_can_connect_via_mdns() {
+        unimplemented!();
+    }
+
+    /// daemon returns own peer id when id is queried
+    /// without partameters
+    #[test]
+    fn get_own_peer_id() {
+        unimplemented!();
+    }
+
+    /// daemon returns peer id of known peer
+    /// when nickname is provided to id
+    #[test]
+    fn get_peer_id_by_nickname() {
+        unimplemented!();
+    }
+
+    /// daemon returns error when unknown nickname
+    /// is provided to id
+    #[test]
+    fn get_peer_id_by_nickname_with_unknown_nickname_fails() {
+        unimplemented!();
+    }
 }
