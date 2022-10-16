@@ -1,9 +1,11 @@
-use crate::api::{Client as ClientTrait, Request as ApiRequest, Response as ApiResponse};
+use super::{Client as ClientTrait, Request, Response};
 
 use libp2p::Multiaddr;
 
 use futures::stream::FusedStream;
 use futures::stream::Stream;
+use core::task::{Context, Poll};
+use core::pin::Pin;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -24,11 +26,22 @@ impl TryFrom<Multiaddr> for Server {
 }
 
 impl Stream for Server {
-    type Item = (Client, ApiRequest);
+    type Item = (Client, Request);
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        unimplemented!()
+    }
 }
 
-impl FusedStream for Server {}
+impl FusedStream for Server {
+    fn is_terminated(&self) -> bool {
+        unimplemented!()
+    }
+}
 
 pub struct Client {}
 
-impl ClientTrait for Client {}
+impl ClientTrait for Client {
+    fn send_response(&mut self, response: Response) {
+        unimplemented!()
+    }
+}

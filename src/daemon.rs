@@ -120,7 +120,7 @@ where
     }
 
     // ---------------- Update Handlers ----------------
-    fn update(&self, peer: PeerId, client: C) {
+    fn update(&mut self, peer: PeerId, mut client: C) {
         if !self.database.contains(peer) {
             client.send_response(ApiResponse::Update(Err(UpdateError::UnknownPeerId)))
         }
@@ -144,39 +144,37 @@ where
     }
 
     fn gitpatch_update_request(
-        &self,
+        &mut self,
         peer: PeerId,
         peer_path: Vec<Commit>,
         channel: GitPatchResponseChannel,
     ) {
-        if peer_path.is_empty() {
-            self.swarm.behaviour_mut().git_patch.send_response(
-                channel,
-                GitPatchResponse::Update(Err(PatchResponseUpdateError::EmptyPath)),
-            );
-        }
-        for commit in self.repository.ancestor_iter() {
-            if commit.is_in(peer_path) || commit.is_ancestor_of(peer_path.first().unwrap()) {
-                self.swarm
-                    .behaviour_mut()
-                    .git_patch
-                    .send_response(channel, GitPatchResponse::Update(Ok(commit)));
-                return;
+        let response = if peer_path.is_empty() {
+            Err(PatchResponseUpdateError::EmptyPath)
+        } else {
+            let mut response = Err(PatchResponseUpdateError::NoCommonAncestor);
+            for commit in self.repository.ancestor_iter() {
+                if commit.is_in(&peer_path) || commit.is_ancestor_of(peer_path.first().unwrap()) {
+                    response = Ok(commit)
+                }
             }
-        }
-        self.swarm.behaviour_mut().git_patch.send_response(
-            channel,
-            GitPatchResponse::Update(Err(PatchResponseUpdateError::NoCommonAncestor)),
-        );
+            response
+        };
+        self
+            .swarm
+            .behaviour_mut()
+            .git_patch
+            .send_response(channel, GitPatchResponse::Update(response))
+            .or_else(|resp| log::info!("failed to send response: {resp:?}") );
     }
 
     fn gitpatch_update_response(
-        &self,
+        &mut self,
         peer: PeerId,
         request_id: RequestId,
         error: behaviour::UpdateResult,
     ) {
-        if let Some(client) = self.pending_update_requests.get(&request_id) {
+        if let Some(client) = self.pending_update_requests.get_mut(&request_id) {
             client.send_response(ApiResponse::Update(Ok(())));
         } else {
             log::info!("unknown request_id: {}", request_id);
@@ -199,7 +197,7 @@ where
 
     // ---------------- Id Handler ----------------
 
-    fn id(&self, nickname: Option<String>, client: C) {
+    fn id(&mut self, nickname: Option<String>, client: C) {
         let response = if let Some(nickname) = nickname {
             let peer = self.database.get_peer_id_from_nickname(&nickname);
             if let Some(peer) = peer {

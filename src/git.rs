@@ -15,7 +15,7 @@ pub struct Commit {
 }
 
 impl Commit {
-    pub fn is_in(&self, list: Vec<Commit>) -> bool {
+    pub fn is_in(&self, list: &Vec<Commit>) -> bool {
         list.contains(self)
     }
     pub fn is_ancestor_of(&self, other: &Commit) -> bool {
