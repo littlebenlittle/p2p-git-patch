@@ -1,11 +1,14 @@
+mod api;
+mod behaviour;
 mod cli;
+mod client;
+mod config;
 mod daemon;
 mod database;
-mod config;
-mod behaviour;
+mod git;
 
 use cli::Cli;
-use daemon::Client;
+use daemon::Service;
 use config::Config;
 
 use clap::Parser;
@@ -37,8 +40,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let config = Config::from_path(cli.config)?;
             if cmd.foreground {
                 async_std::task::block_on(async move {
-                    let mut client: Client = Client::new(config.keypair).await?;
-                    client.start(config.listen).await
+                    let mut service = Service::new(config.keypair).await?;
+                    service.start(config.listen).await
                 })?;
             }
         }

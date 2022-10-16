@@ -1,3 +1,5 @@
+use crate::git::Commit;
+
 use async_std::io;
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
@@ -5,7 +7,10 @@ use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
     core::upgrade::ProtocolName,
     mdns::{Mdns, MdnsEvent},
-    request_response::{ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent},
+    request_response::{
+        ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent,
+        ResponseChannel,
+    },
     NetworkBehaviour,
 };
 
@@ -30,7 +35,7 @@ pub struct Behaviour {
 #[derive(Debug)]
 pub enum Event {
     Mdns(MdnsEvent),
-    Git(GitPatchEvent),
+    GitPatch(GitPatchEvent),
 }
 
 impl From<MdnsEvent> for Event {
@@ -41,7 +46,7 @@ impl From<MdnsEvent> for Event {
 
 impl From<GitPatchEvent> for Event {
     fn from(e: GitPatchEvent) -> Self {
-        Self::Git(e)
+        Self::GitPatch(e)
     }
 }
 
@@ -52,16 +57,30 @@ pub struct GitPatchExchangeProtocol();
 pub struct GitPatchExchangeCodec();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitPatchRequest {
+pub enum GitPatchRequest {
+    Update { path: Vec<Commit> },
+    Patch,
+}
 
+pub type UpdateResult = Result<Commit, PatchResponseUpdateError>;
+pub type GitPatchResponseChannel = ResponseChannel<GitPatchResponse>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitPatchResponse {
+    Update(UpdateResult),
+    Patch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitPatchResponse(Vec<u8>);
+pub enum PatchResponseUpdateError {
+    NoCommonAncestor,
+    /// Request contained a path with no commit ids in it
+    EmptyPath,
+}
 
 impl ProtocolName for GitPatchExchangeProtocol {
     fn protocol_name(&self) -> &[u8] {
-        "/file-exchange/1".as_bytes()
+        "/git-patch/0.1".as_bytes()
     }
 }
 
