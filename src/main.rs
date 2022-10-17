@@ -46,9 +46,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         cli::Command::Daemon(cmd) => {
             let config = Config::from_path(cli.config)?;
             if cmd.foreground {
-                async_std::task::block_on(async move { run_daemon(config).await });
+                async_std::task::block_on(async move { run_daemon(config).await })?
             } else {
-                println!("background daemon unimplemented")
+                unimplemented!("background daemon unimplemented")
             }
         }
     }
@@ -72,11 +72,34 @@ async fn run_daemon(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
+    use super::config::ConfigSerde;
     use super::*;
+
+    /// create an inital configuration file
+    #[test]
+    fn can_create_initial_config_file() -> Result<(), Box<dyn Error>> {
+        let config = Config::new(
+            "/tmp/p2p-gitpatch-test/repo".to_owned(),
+            "/tmp/p2p-gitpatch-test/db.yaml".to_owned(),
+            "/ip4/127.0.0.1/udp/1234".parse()?,
+            "/unix/tmp/p2p-gitpatch-test/socket".parse::<config::MultiaddrUnixSocket>()?,
+        );
+        let yaml = config.to_yaml()?;
+        let parsed = serde_yaml::from_str::<ConfigSerde>(&yaml)?;
+        assert_eq!(ConfigSerde::from(&config), parsed);
+        Ok(())
+    }
+
     /// daemon can be started
     #[test]
     fn can_run_daemon() {
-        unimplemented!();
+        let config = ConfigSerde {
+            keypair: "".to_owned(),
+            repo_dir: "".to_owned(),
+            database_path: "".to_owned(),
+            swarm_listen: "".to_owned(),
+            api_listen: "".to_owned(),
+        };
     }
 
     /// two daemons can find each other on loopback device via mdns

@@ -24,7 +24,7 @@ impl RepositoryTrait for Repository {
     }
 }
 
-struct BranchHistory {}
+pub struct BranchHistory {}
 
 impl Iterator for BranchHistory {
     type Item = Commit;

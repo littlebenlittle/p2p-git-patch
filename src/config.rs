@@ -5,8 +5,68 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
+    fmt,
     path::{Path, PathBuf},
 };
+
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub enum MultiaddrUnixSocket {
+    Multiaddr(Multiaddr),
+    UnixSocket(PathBuf),
+}
+
+impl std::str::FromStr for MultiaddrUnixSocket {
+    type Err = MultiaddrUnixSocketError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<Multiaddr>() {
+            Ok(a) => Ok(Self::Multiaddr(a)),
+            Err(m_e) => {
+                match s
+                    .match_indices('/')
+                    .nth(1)
+                    .map(|(index, _)| s.split_at(index))
+                {
+                    Some((proto, path)) => {
+                        if proto == "/unix" {
+                            Ok(Self::UnixSocket(PathBuf::from(path)))
+                        } else {
+                            Err(MultiaddrUnixSocketError::ParseFailure(m_e))
+                        }
+                    }
+                    None => Err(MultiaddrUnixSocketError::EmptyPath(s.to_owned())),
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Display for MultiaddrUnixSocket {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Multiaddr(addr) => f.write_str(&format!("{addr}")),
+            Self::UnixSocket(path) => f.write_str(&format!("/unix/{}", path.to_str().unwrap())),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum MultiaddrUnixSocketError {
+    ParseFailure(libp2p::multiaddr::Error),
+    EmptyPath(String),
+}
+
+impl fmt::Display for MultiaddrUnixSocketError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ParseFailure(e) => f.write_str(&format!("couldn't parse multiaddr: {e:?}")),
+            Self::EmptyPath(s) => {
+                f.write_str(&format!("fragment following '/unix/' is empty for {s}"))
+            }
+        }
+    }
+}
+
+impl Error for MultiaddrUnixSocketError {}
 
 pub struct Config {
     /// Multi-codec encoded keypair
@@ -18,21 +78,21 @@ pub struct Config {
     /// listen address for swarm
     pub swarm_listen: Multiaddr,
     /// listen adderr for api
-    pub api_listen: Multiaddr,
+    pub api_listen: MultiaddrUnixSocket,
 }
 
-#[derive(Serialize, Deserialize)]
-struct ConfigSerde {
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct ConfigSerde {
     /// Multibase encoded serializtion of ed25519 keypair
-    keypair: String,
+    pub keypair: String,
     /// Path to git repository on filesystem
-    repo_dir: String,
+    pub repo_dir: String,
     /// Path to file for peer database table
-    database_path: String,
+    pub database_path: String,
     /// listen address for swarm
-    swarm_listen: String,
+    pub swarm_listen: String,
     /// listen address for api
-    api_listen: String,
+    pub api_listen: String,
 }
 
 impl Config {
@@ -76,7 +136,12 @@ impl From<&Config> for ConfigSerde {
 }
 
 impl Config {
-    pub fn new(repo_dir: String, db_path: String, swarm_listen: Multiaddr, api_listen: Multiaddr) -> Self {
+    pub fn new(
+        repo_dir: String,
+        db_path: String,
+        swarm_listen: Multiaddr,
+        api_listen: MultiaddrUnixSocket,
+    ) -> Self {
         Self {
             keypair: Keypair::generate_ed25519(),
             repo_dir: PathBuf::from(repo_dir),
@@ -88,5 +153,30 @@ impl Config {
 
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(&ConfigSerde::from(self))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_multiaddr() -> Result<(), Box<dyn Error>> {
+        let s = "/ip4/127.0.0.1/tcp/8080";
+        assert_eq!(
+            s.parse::<MultiaddrUnixSocket>()?,
+            MultiaddrUnixSocket::Multiaddr(s.parse()?)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn parse_unix_socket() -> Result<(), Box<dyn Error>> {
+        let s = "/unix/path/to/socket";
+        assert_eq!(
+            s.parse::<MultiaddrUnixSocket>()?,
+            MultiaddrUnixSocket::Multiaddr("/path/to/socket".parse()?)
+        );
+        Ok(())
     }
 }

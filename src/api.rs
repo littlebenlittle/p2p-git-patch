@@ -1,9 +1,9 @@
 mod protocol;
 mod unix_socket;
 
+use crate::config::MultiaddrUnixSocket;
 use futures::stream::FusedStream;
 use libp2p::multiaddr::Protocol;
-use libp2p::Multiaddr;
 use std::error::Error;
 use std::sync::mpsc;
 
@@ -14,15 +14,16 @@ pub type Client = mpsc::Sender<Response>;
 
 pub trait Server: FusedStream<Item = (Client, Request)> + Unpin {}
 
-impl TryFrom<Multiaddr> for Box<dyn Server> {
+impl TryFrom<MultiaddrUnixSocket> for Box<dyn Server> {
     type Error = Box<dyn Error>;
-    fn try_from(addr: Multiaddr) -> Result<Self, Self::Error> {
-        if addr.is_empty() {
-            return Err(Box::new(ProtocolError::EmptyProtocolString));
-        }
-        let server = match addr.pop().unwrap() {
-            Protocol::Unix(path_str) => Box::new(UnixSocketServer::new(path_str.to_string())?),
-            p => return Err(Box::new(ProtocolError::UnhandledProtocol(p))),
+    fn try_from(addr: MultiaddrUnixSocket) -> Result<Self, Self::Error> {
+        use MultiaddrUnixSocket::*;
+        let server = match addr {
+            Multiaddr(mut addr) => match addr.pop() {
+                Some(proto) => return Err(Box::new(ProtocolError::UnhandledProtocol(proto))),
+                None => return Err(Box::new(ProtocolError::EmptyProtocolString))
+            }
+            UnixSocket(path) => Box::new(UnixSocketServer::new(path)?),
         };
         Ok(server)
     }

@@ -24,27 +24,33 @@ impl TryFrom<PathBuf> for Box<dyn Database> {
         let db = match path.extension() {
             None => return Err(Error::IsDirectory),
             Some(value) => match value.to_str() {
-                None => return Err(Error::InvalidFileExension),
-                Some("yaml") => YamlDatabase::new(path.to_path_buf())
-            }
+                None => return Err(Error::InvalidFileExension(path)),
+                Some("yaml") => YamlDatabase::new(path.to_path_buf()),
+                Some(ext) => return Err(Error::UnhandledExnension(path)),
+            },
         };
         Ok(Box::new(db))
     }
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     IsDirectory,
-    InvalidFileExension,
+    InvalidFileExension(PathBuf),
+    UnhandledExnension(PathBuf),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::IsDirectory => f.write_str("is a directory")?,
-            Self::InvalidFileExension => f.write_str("invalid file extension")?,
+            Self::IsDirectory => f.write_str("is a directory"),
+            Self::InvalidFileExension(path) => {
+                f.write_str(&format!("could not determine file extension for {path:?}"))
+            }
+            Self::UnhandledExnension(path) => {
+                f.write_str(&format!("unandled file extension for {path:?}"))
+            }
         }
-        Ok(())
     }
 }
 

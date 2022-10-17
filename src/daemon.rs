@@ -1,4 +1,7 @@
-use crate::api::{Client as ApiClient, Server as ApiServer, IdError, Request as ApiRequest, Response as ApiResponse, UpdateError};
+use crate::api::{
+    Client as ApiClient, IdError, Request as ApiRequest, Response as ApiResponse,
+    Server as ApiServer, UpdateError,
+};
 use crate::behaviour::{
     self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel,
     PatchResponseUpdateError,
@@ -153,12 +156,15 @@ where
             }
             response
         };
-        self
+        match self
             .swarm
             .behaviour_mut()
             .git_patch
             .send_response(channel, GitPatchResponse::Update(response))
-            .or_else(|resp| log::info!("failed to send response: {resp:?}") );
+        {
+            Ok(()) => {}
+            Err(resp) => log::info!("failed to send response: {resp:?}"),
+        }
     }
 
     fn gitpatch_update_response(
