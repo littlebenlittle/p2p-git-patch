@@ -1,10 +1,16 @@
 use super::{Commit, Repository as RepositoryTrait};
 
-pub struct Repository {}
+use std::path::PathBuf;
 
-impl Repository {
-    pub fn new(path: std::path::PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {})
+pub struct Repository {
+    /// path to repository directory
+    path: PathBuf,
+}
+
+impl TryFrom<PathBuf> for Repository {
+    type Error = std::convert::Infallible;
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        Ok(Self { path })
     }
 }
 

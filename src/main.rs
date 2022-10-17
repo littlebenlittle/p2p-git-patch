@@ -10,7 +10,7 @@ use api::Server;
 use cli::Cli;
 use config::Config;
 use daemon::Service;
-use database::YamlDatabase;
+use database::Database;
 use git::EagerRepository;
 
 use clap::Parser;
@@ -57,8 +57,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 async fn run_daemon(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let api_server = Box::<dyn Server>::try_from(config.api_listen)?;
-    let database = YamlDatabase::new(config.database_path)?;
-    let repository = EagerRepository::new(config.repo_dir)?;
+    let database = Box::<dyn Database>::try_from(config.database_path)?;
+    let repository = EagerRepository::try_from(config.repo_dir)?;
     let mut service = Service::new(
         config.swarm_listen,
         config.keypair,

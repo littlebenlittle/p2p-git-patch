@@ -20,11 +20,11 @@ impl TryFrom<Multiaddr> for Box<dyn Server> {
         if addr.is_empty() {
             return Err(Box::new(ProtocolError::EmptyProtocolString));
         }
-        let db = match addr.pop().unwrap() {
+        let server = match addr.pop().unwrap() {
             Protocol::Unix(path_str) => Box::new(UnixSocketServer::new(path_str.to_string())?),
             p => return Err(Box::new(ProtocolError::UnhandledProtocol(p))),
         };
-        Ok(db)
+        Ok(server)
     }
 }
 

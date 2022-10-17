@@ -20,30 +20,28 @@ use futures::stream::StreamExt;
 use std::collections::HashMap;
 use std::{error::Error, io};
 
-pub struct Service<D, R>
+pub struct Service<R>
 where
-    D: Database,
     R: Repository,
 {
     swarm_listen: Multiaddr,
     swarm: Swarm<Behaviour>,
     api_server: Box<dyn ApiServer>,
-    database: D,
+    database: Box<dyn Database>,
     repository: R,
     api_response_queue: Vec<(ApiClient, ApiResponse)>,
     pending_update_requests: HashMap<RequestId, ApiClient>,
 }
 
-impl<D, R> Service<D, R>
+impl<R> Service<R>
 where
-    D: Database,
     R: Repository,
 {
     pub async fn new(
         swarm_listen: Multiaddr,
         keypair: Keypair,
         api_server: Box<dyn ApiServer>,
-        database: D,
+        database: Box<dyn Database>,
         repository: R,
     ) -> Result<Self, io::Error> {
         let peer_id = PeerId::from(keypair.public());
