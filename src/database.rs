@@ -8,7 +8,7 @@ use libp2p::PeerId;
 
 use std::path::PathBuf;
 
-pub trait Database {
+pub trait Database: Send {
     /// Returns true of the database contains the provided peer id
     fn contains(&self, peer: PeerId) -> bool;
     /// Get the peer id associated with this nickname
@@ -26,7 +26,7 @@ impl TryFrom<PathBuf> for Box<dyn Database> {
             Some(value) => match value.to_str() {
                 None => return Err(Error::InvalidFileExension(path)),
                 Some("yaml") => YamlDatabase::new(path.to_path_buf()),
-                Some(ext) => return Err(Error::UnhandledExnension(path)),
+                Some(_) => return Err(Error::UnhandledExnension(path)),
             },
         };
         Ok(Box::new(db))

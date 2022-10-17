@@ -9,10 +9,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum MultiaddrUnixSocket {
     Multiaddr(Multiaddr),
     UnixSocket(PathBuf),
+}
+
+impl MultiaddrUnixSocket {
+    /// returns innter path if this is a unix socket. Panics if this is a multiaddr.
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            Self::Multiaddr(_) => panic!("path() called on a multiaddr"),
+            Self::UnixSocket(path) => path
+        }
+    }
 }
 
 impl std::str::FromStr for MultiaddrUnixSocket {
@@ -137,15 +147,15 @@ impl From<&Config> for ConfigSerde {
 
 impl Config {
     pub fn new(
-        repo_dir: String,
-        db_path: String,
+        repo_dir: &str,
+        db_path: &str,
         swarm_listen: Multiaddr,
         api_listen: MultiaddrUnixSocket,
     ) -> Self {
         Self {
             keypair: Keypair::generate_ed25519(),
-            repo_dir: PathBuf::from(repo_dir),
-            database_path: PathBuf::from(db_path),
+            repo_dir: repo_dir.parse().unwrap(),
+            database_path: db_path.parse().unwrap(),
             swarm_listen,
             api_listen,
         }
@@ -179,4 +189,19 @@ mod test {
         );
         Ok(())
     }
+
+    #[test]
+    fn serialize_config_roundtrip() -> Result<(), Box<dyn Error>> {
+        let config = Config::new(
+            "/tmp/p2p-gitpatch-test/repo",
+            "/tmp/p2p-gitpatch-test/db.yaml",
+            "/ip4/127.0.0.1/udp/1234".parse()?,
+            "/unix/tmp/p2p-gitpatch-test/socket".parse()?,
+        );
+        let yaml = config.to_yaml()?;
+        let parsed = serde_yaml::from_str::<ConfigSerde>(&yaml)?;
+        assert_eq!(ConfigSerde::from(&config), parsed);
+        Ok(())
+    }
+
 }

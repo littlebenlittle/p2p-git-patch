@@ -1,5 +1,6 @@
 mod protocol;
 mod unix_socket;
+mod test_server;
 
 use crate::config::MultiaddrUnixSocket;
 use futures::stream::FusedStream;
@@ -9,10 +10,11 @@ use std::sync::mpsc;
 
 pub use protocol::{IdError, PatchError, Request, Response, UpdateError};
 pub use unix_socket::Server as UnixSocketServer;
+pub use test_server::Server as TestServer;
 
 pub type Client = mpsc::Sender<Response>;
 
-pub trait Server: FusedStream<Item = (Client, Request)> + Unpin {}
+pub trait Server: FusedStream<Item = (Client, Request)> + Unpin + Send {}
 
 impl TryFrom<MultiaddrUnixSocket> for Box<dyn Server> {
     type Error = Box<dyn Error>;

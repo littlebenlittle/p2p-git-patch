@@ -23,8 +23,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     match cli.command {
         cli::Command::Init(cmd) => {
             let config = Config::new(
-                cmd.repo,
-                cmd.db_path,
+                &cmd.repo,
+                &cmd.db_path,
                 cmd.swarm_listen.parse()?,
                 cmd.api_listen.parse()?,
             );
@@ -46,7 +46,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         cli::Command::Daemon(cmd) => {
             let config = Config::from_path(cli.config)?;
             if cmd.foreground {
-                async_std::task::block_on(async move { run_daemon(config).await })?
+                async_std::task::block_on(async move {
+                    match run_daemon(config).await {
+                        Ok(_) => {}
+                        Err(e) => log::error!("{e:?}"),
+                    }
+                })
             } else {
                 unimplemented!("background daemon unimplemented")
             }
@@ -55,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn run_daemon(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_daemon(config: Config) -> Result<(), Box<dyn Error>> {
     let api_server = Box::<dyn Server>::try_from(config.api_listen)?;
     let database = Box::<dyn Database>::try_from(config.database_path)?;
     let repository = EagerRepository::try_from(config.repo_dir)?;
@@ -72,34 +77,53 @@ async fn run_daemon(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod test {
-    use super::config::ConfigSerde;
     use super::*;
-
-    /// create an inital configuration file
-    #[test]
-    fn can_create_initial_config_file() -> Result<(), Box<dyn Error>> {
-        let config = Config::new(
-            "/tmp/p2p-gitpatch-test/repo".to_owned(),
-            "/tmp/p2p-gitpatch-test/db.yaml".to_owned(),
-            "/ip4/127.0.0.1/udp/1234".parse()?,
-            "/unix/tmp/p2p-gitpatch-test/socket".parse::<config::MultiaddrUnixSocket>()?,
-        );
-        let yaml = config.to_yaml()?;
-        let parsed = serde_yaml::from_str::<ConfigSerde>(&yaml)?;
-        assert_eq!(ConfigSerde::from(&config), parsed);
-        Ok(())
-    }
+    use async_std::task::JoinHandle;
+    use futures::channel;
+    use libp2p::identity::Keypair;
+    use std::path::PathBuf;
 
     /// daemon can be started
     #[test]
-    fn can_run_daemon() {
-        let config = ConfigSerde {
-            keypair: "".to_owned(),
-            repo_dir: "".to_owned(),
-            database_path: "".to_owned(),
-            swarm_listen: "".to_owned(),
-            api_listen: "".to_owned(),
-        };
+    fn can_run_daemon() -> Result<(), Box<dyn Error>> {
+        let (shutdown_tx, shutdown_rx) = channel::oneshot::channel();
+        let api_server = api::TestServer::new(shutdown_rx)?;
+        let db_path = PathBuf::from("/tmp/p2p-gitpatch-test/db.yaml");
+        let repo_dir = PathBuf::from("/tmp/p2p-gitpatch-test/repo");
+        let swarm_addr = "/ip4/127.0.0.1/udp/1234".parse()?;
+        let database = Box::<dyn Database>::try_from(db_path)?;
+        let repository = EagerRepository::try_from(repo_dir)?;
+        let jh = async_std::task::spawn(async move {
+            let mut service = Service::new(
+                swarm_addr,
+                Keypair::generate_ed25519(),
+                api_server,
+                database,
+                repository,
+            )
+            .await
+            .or_else(|e| Err(format!("failed to create service: {e:?}")))?;
+            service
+                .start()
+                .await
+                .or_else(|e| Err(format!("failed to create service: {e:?}")))
+        });
+        async_std::task::block_on(async move {
+            match shutdown_tx.send(()) {
+                Ok(()) => {}
+                Err(_) => {
+                    return Err("failed to send shutdown to test server");
+                }
+            }
+            match jh.await {
+                Ok(()) => {}
+                Err(s) => {
+                    return Err(format!("failed to join threads with server: {s}"));
+                }
+            };
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// two daemons can find each other on loopback device via mdns
