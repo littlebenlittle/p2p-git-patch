@@ -1,30 +1,89 @@
-mod protocol;
-mod unix_socket;
+pub mod protocol;
 mod test_server;
+mod unix_socket;
 
 use crate::config::MultiaddrUnixSocket;
+use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::stream::FusedStream;
 use libp2p::multiaddr::Protocol;
-use std::error::Error;
-use std::sync::mpsc;
+use libp2p::PeerId;
 
 pub use protocol::{IdError, PatchError, Request, Response, UpdateError};
-pub use unix_socket::Server as UnixSocketServer;
+pub use test_server::Client as TestClient;
 pub use test_server::Server as TestServer;
+pub use unix_socket::Server as UnixSocketServer;
 
-pub type Client = mpsc::Sender<Response>;
+type ClientResult<T> = Result<T, Error>;
 
-pub trait Server: FusedStream<Item = (Client, Request)> + Unpin + Send {}
+pub trait Client {
+    fn get_id(&mut self) -> ClientResult<PeerId>;
+    fn get_peer(&mut self, nickname: &str) -> ClientResult<PeerId>;
+    fn shutdown(&mut self) -> ClientResult<()>;
+    fn add_peer(&mut self, peer: PeerId, nickname: &str) -> ClientResult<()>;
+}
+
+#[derive(Debug)]
+pub enum Error {
+    RequestError(mpsc::TrySendError<protocol::Request>),
+    IdError(protocol::IdError),
+    ShutdownError(protocol::ShutdownError),
+    UnexpectedResponseType(protocol::Response),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::RequestError(e) => {
+                f.write_str("request error: ");
+                e.fmt(f);
+            }
+            Self::IdError(e) => {
+                std::fmt::Debug::fmt(e, f);
+            }
+            Self::ShutdownError(e) => {
+                std::fmt::Debug::fmt(e, f);
+            }
+            Self::UnexpectedResponseType(resp) => {
+                f.write_str("unexpected response: ");
+                std::fmt::Debug::fmt(resp, f);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<mpsc::TrySendError<protocol::Request>> for Error {
+    fn from(e: mpsc::TrySendError<protocol::Request>) -> Self {
+        Self::RequestError(e)
+    }
+}
+
+impl From<protocol::IdError> for Error {
+    fn from(e: protocol::IdError) -> Self {
+        Self::IdError(e)
+    }
+}
+
+impl From<protocol::ShutdownError> for Error {
+    fn from(e: protocol::ShutdownError) -> Self {
+        Self::ShutdownError(e)
+    }
+}
+
+pub trait Server: FusedStream<Item = (oneshot::Sender<Response>, Request)> + Unpin + Send {}
 
 impl TryFrom<MultiaddrUnixSocket> for Box<dyn Server> {
-    type Error = Box<dyn Error>;
+    type Error = Box<dyn std::error::Error>;
     fn try_from(addr: MultiaddrUnixSocket) -> Result<Self, Self::Error> {
         use MultiaddrUnixSocket::*;
         let server = match addr {
             Multiaddr(mut addr) => match addr.pop() {
                 Some(proto) => return Err(Box::new(ProtocolError::UnhandledProtocol(proto))),
-                None => return Err(Box::new(ProtocolError::EmptyProtocolString))
-            }
+                None => return Err(Box::new(ProtocolError::EmptyProtocolString)),
+            },
             UnixSocket(path) => Box::new(UnixSocketServer::new(path)?),
         };
         Ok(server)
@@ -47,4 +106,4 @@ impl<'a> std::fmt::Display for ProtocolError<'a> {
     }
 }
 
-impl<'a> Error for ProtocolError<'a> {}
+impl<'a> std::error::Error for ProtocolError<'a> {}

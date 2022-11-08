@@ -8,19 +8,29 @@ pub enum Request {
     /// Show peer id
     /// If no peer nickname provided, show own peer id
     Id { nickname: Option<String> },
+    /// Shut down the server
+    Shutdown,
 }
 
+#[derive(Debug)]
 pub enum Response {
     Update(Result<(), UpdateError>),
     Patch(Result<(), PatchError>),
-    Id(Result<PeerId, IdError>)
+    Id(Result<PeerId, IdError>),
+    Shutdown(Result<(), ShutdownError>),
 }
 
-// TODO
+#[derive(Debug)]
 pub enum UpdateError {
     UnknownPeerId
 }
+#[derive(Debug)]
 pub enum PatchError {}
+
+#[derive(Debug)]
+pub enum ShutdownError {}
+
+#[derive(Debug)]
 pub enum IdError {
     UnknownNickname
 }

@@ -1,13 +1,13 @@
 use crate::api::{
-    Client as ApiClient, IdError, Request as ApiRequest, Response as ApiResponse,
-    Server as ApiServer, UpdateError,
+    IdError, Request as ApiRequest, Response as ApiResponse, Server as ApiServer, UpdateError,
 };
 use crate::behaviour::{
     self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel,
     PatchResponseUpdateError,
 };
-use crate::database::Database;
-use crate::git::{Commit, Repository};
+use crate::config::Config;
+use crate::database::{self, Database};
+use crate::git::{Commit, EagerRepository, Repository};
 
 use libp2p::{
     identity::Keypair,
@@ -19,27 +19,23 @@ use libp2p::{
     Swarm,
 };
 
+use futures::channel::oneshot;
 use futures::stream::StreamExt;
 use std::collections::HashMap;
-use std::{error::Error, io};
+use std::path::PathBuf;
+use std::{error, fmt, io};
 
-pub struct Service<R>
-where
-    R: Repository,
-{
+pub struct Service<R: Repository> {
     swarm_listen: Multiaddr,
     swarm: Swarm<Behaviour>,
     api_server: Box<dyn ApiServer>,
     database: Box<dyn Database>,
     repository: R,
-    api_response_queue: Vec<(ApiClient, ApiResponse)>,
-    pending_update_requests: HashMap<RequestId, ApiClient>,
+    api_response_queue: Vec<(oneshot::Sender<ApiResponse>, ApiResponse)>,
+    pending_update_requests: HashMap<RequestId, oneshot::Sender<ApiResponse>>,
 }
 
-impl<R> Service<R>
-where
-    R: Repository,
-{
+impl<R: Repository> Service<R> {
     pub async fn new(
         swarm_listen: Multiaddr,
         keypair: Keypair,
@@ -66,7 +62,7 @@ where
         })
     }
 
-    pub async fn start(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn start(&mut self) -> Result<(), Box<dyn error::Error>> {
         self.swarm.listen_on(self.swarm_listen.clone())?;
         loop {
             use behaviour::Event::*;
@@ -77,7 +73,8 @@ where
                 (client, cmd) = self.api_server.select_next_some() => match cmd {
                     Update { peer } => self.update(peer, client),
                     Patch { peer, commit_id } => self.patch(peer, commit_id),
-                    Id { nickname } => self.id(nickname, client)
+                    Id { nickname } => self.id(nickname, client),
+                    Shutdown => self.shutdown(),
                 },
                 e = self.swarm.select_next_some() => match e {
                     Behaviour(GitPatch(RequestResponseEvent::Message{ peer, message })) => {
@@ -116,9 +113,10 @@ where
     }
 
     // ---------------- Update Handlers ----------------
-    fn update(&mut self, peer: PeerId, mut client: ApiClient) {
+    fn update(&mut self, peer: PeerId, mut client: oneshot::Sender<ApiResponse>) {
         if !self.database.contains(peer) {
             client.send(ApiResponse::Update(Err(UpdateError::UnknownPeerId)));
+            return;
         }
         let mrca = self
             .database
@@ -173,8 +171,11 @@ where
         request_id: RequestId,
         error: behaviour::UpdateResult,
     ) {
-        if let Some(client) = self.pending_update_requests.get_mut(&request_id) {
-            client.send(ApiResponse::Update(Ok(())));
+        if let Some(client) = self.pending_update_requests.remove(&request_id) {
+            match client.send(ApiResponse::Update(Ok(()))) {
+                Err(e) => log::info!("failed to send response for {request_id}: {e:?}"),
+                _ => {}
+            }
         } else {
             log::info!("unknown request_id: {}", request_id);
         }
@@ -196,7 +197,7 @@ where
 
     // ---------------- Id Handler ----------------
 
-    fn id(&mut self, nickname: Option<String>, client: ApiClient) {
+    fn id(&mut self, nickname: Option<String>, client: oneshot::Sender<ApiResponse>) {
         let response = if let Some(nickname) = nickname {
             let peer = self.database.get_peer_id_from_nickname(&nickname);
             if let Some(peer) = peer {
@@ -209,5 +210,10 @@ where
         };
         self.api_response_queue
             .push((client, ApiResponse::Id(response)));
+    }
+
+    // ---------------- Shutdown Handler ----------------
+    fn shutdown(&self) {
+        unimplemented!()
     }
 }

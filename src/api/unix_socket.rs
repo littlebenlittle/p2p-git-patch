@@ -1,7 +1,8 @@
-use super::{Client, Server as ServerTrait, Request};
+use super::{Client, Server as ServerTrait, Request, Response};
 
 use futures::stream::FusedStream;
 use futures::stream::Stream;
+use futures::channel::oneshot;
 use core::task::{Context, Poll};
 use core::pin::Pin;
 
@@ -21,7 +22,7 @@ impl ServerTrait for Server {}
 impl Unpin for Server {}
 
 impl Stream for Server {
-    type Item = (Client, Request);
+    type Item = (oneshot::Sender<Response>, Request);
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         unimplemented!()
     }
