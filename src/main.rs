@@ -103,7 +103,7 @@ mod test {
         Box<dyn Error>,
     > {
         let mut api_server = api::TestServer::new();
-        let api = api_server.client();
+        let api = api_server.client()?;
         let swarm_addr = swarm_addr.parse()?;
         let database = Box::<dyn Database>::try_from(db_path)?;
         let repository = EagerRepository::try_from(repo_dir)?;
@@ -122,13 +122,16 @@ mod test {
     /// daemon can be started
     #[test]
     fn can_run_daemon() -> Result {
+        env_logger::init();
         let tmp = TempDir::new()?;
+        log::debug!("starting service...");
         let (mut api, jh) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
             "/ip4/127.0.0.1/udp/0",
             Keypair::generate_ed25519(),
         )?;
+        log::debug!("sending shutdown...");
         api.shutdown()?;
         async_std::task::block_on(async move { jh.await })?;
         Ok(())
@@ -217,10 +220,10 @@ mod test {
         )?;
         use super::api::protocol;
         match api.get_peer("A") {
-            Err(api::Error::IdError(protocol::IdError::UnknownNickname)) => {}
+            Err(api::ClientError::IdError(protocol::IdError::UnknownNickname)) => {}
             Err(e) => panic!(
                 "expected {:?}; got {e}",
-                api::Error::IdError(protocol::IdError::UnknownNickname)
+                api::ClientError::IdError(protocol::IdError::UnknownNickname)
             ),
             Ok(id) => panic!("expected error; got {id}"),
         }

@@ -1,5 +1,5 @@
 [package]
-name = "p2p-git-patch-client"
+name = "p2p-git-patch"
 version = "0.1.0"
 edition = "2021"
 

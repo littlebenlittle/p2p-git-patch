@@ -1,5 +1,6 @@
 use libp2p::PeerId;
 
+#[derive(Debug)]
 pub enum Request {
     /// Sync metadata with peer
     Update { peer: PeerId },

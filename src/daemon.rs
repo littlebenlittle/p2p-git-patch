@@ -1,5 +1,6 @@
 use crate::api::{
-    IdError, Request as ApiRequest, Response as ApiResponse, Server as ApiServer, UpdateError,
+    ClientId as ApiClientId, IdError, Request as ApiRequest, Response as ApiResponse,
+    Server as ApiServer, UpdateError,
 };
 use crate::behaviour::{
     self, Behaviour, GitPatchRequest, GitPatchResponse, GitPatchResponseChannel,
@@ -19,8 +20,8 @@ use libp2p::{
     Swarm,
 };
 
-use futures::channel::oneshot;
-use futures::stream::StreamExt;
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{error, fmt, io};
@@ -31,8 +32,8 @@ pub struct Service<R: Repository> {
     api_server: Box<dyn ApiServer>,
     database: Box<dyn Database>,
     repository: R,
-    api_response_queue: Vec<(oneshot::Sender<ApiResponse>, ApiResponse)>,
-    pending_update_requests: HashMap<RequestId, oneshot::Sender<ApiResponse>>,
+    api_response_queue: Vec<(ApiClientId, ApiResponse)>,
+    pending_update_requests: HashMap<RequestId, ApiClientId>,
 }
 
 impl<R: Repository> Service<R> {
@@ -44,7 +45,6 @@ impl<R: Repository> Service<R> {
         repository: R,
     ) -> Result<Self, io::Error> {
         let peer_id = PeerId::from(keypair.public());
-        println!("Local peer id: {:?}", peer_id);
         let transport = libp2p::development_transport(keypair).await?;
         let behaviour = Behaviour {
             mdns: Mdns::new(MdnsConfig::default())?,
@@ -68,13 +68,16 @@ impl<R: Repository> Service<R> {
             use behaviour::Event::*;
             use libp2p::core::ConnectedPoint;
             use libp2p::swarm::SwarmEvent::*;
-            use ApiRequest::*;
             futures::select! {
-                (client, cmd) = self.api_server.select_next_some() => match cmd {
-                    Update { peer } => self.update(peer, client),
-                    Patch { peer, commit_id } => self.patch(peer, commit_id),
-                    Id { nickname } => self.id(nickname, client),
-                    Shutdown => self.shutdown(),
+                (client, cmd) = self.api_server.select_next_some() => {
+                    use ApiRequest::*;
+                    log::debug!("cmd: {cmd:?}");
+                    match cmd {
+                        Update { peer } => self.update(peer, client),
+                        Patch { peer, commit_id } => self.patch(peer, commit_id),
+                        Id { nickname } => self.id(nickname, client),
+                        Shutdown => break,
+                    }
                 },
                 e = self.swarm.select_next_some() => match e {
                     Behaviour(GitPatch(RequestResponseEvent::Message{ peer, message })) => {
@@ -85,7 +88,7 @@ impl<R: Repository> Service<R> {
                                     GitPatchRequest::Patch => self.gitpatch_patch_request(peer, channel),
                                 }
                                 RequestResponseMessage::Response { response, request_id } => match response {
-                                    GitPatchResponse::Update(result) => self.gitpatch_update_response(peer, request_id, result),
+                                    GitPatchResponse::Update(result) => self.gitpatch_update_response(peer, request_id, result).await,
                                     GitPatchResponse::Patch => self.gitpatch_patch_response(peer),
                                 }
                             }
@@ -110,12 +113,14 @@ impl<R: Repository> Service<R> {
                 }
             }
         }
+        Ok(())
     }
 
     // ---------------- Update Handlers ----------------
-    fn update(&mut self, peer: PeerId, mut client: oneshot::Sender<ApiResponse>) {
+    fn update(&mut self, peer: PeerId, mut client: ApiClientId) {
         if !self.database.contains(peer) {
-            client.send(ApiResponse::Update(Err(UpdateError::UnknownPeerId)));
+            self.api_response_queue
+                .push((client, ApiResponse::Update(Err(UpdateError::UnknownPeerId))));
             return;
         }
         let mrca = self
@@ -165,17 +170,15 @@ impl<R: Repository> Service<R> {
         }
     }
 
-    fn gitpatch_update_response(
+    async fn gitpatch_update_response(
         &mut self,
         peer: PeerId,
         request_id: RequestId,
         error: behaviour::UpdateResult,
     ) {
-        if let Some(client) = self.pending_update_requests.remove(&request_id) {
-            match client.send(ApiResponse::Update(Ok(()))) {
-                Err(e) => log::info!("failed to send response for {request_id}: {e:?}"),
-                _ => {}
-            }
+        if let Some(mut client) = self.pending_update_requests.remove(&request_id) {
+            self.api_response_queue
+                .push((client, ApiResponse::Update(Ok(()))))
         } else {
             log::info!("unknown request_id: {}", request_id);
         }
@@ -197,7 +200,7 @@ impl<R: Repository> Service<R> {
 
     // ---------------- Id Handler ----------------
 
-    fn id(&mut self, nickname: Option<String>, client: oneshot::Sender<ApiResponse>) {
+    fn id(&mut self, nickname: Option<String>, client: ApiClientId) {
         let response = if let Some(nickname) = nickname {
             let peer = self.database.get_peer_id_from_nickname(&nickname);
             if let Some(peer) = peer {
@@ -210,10 +213,5 @@ impl<R: Repository> Service<R> {
         };
         self.api_response_queue
             .push((client, ApiResponse::Id(response)));
-    }
-
-    // ---------------- Shutdown Handler ----------------
-    fn shutdown(&self) {
-        unimplemented!()
     }
 }
