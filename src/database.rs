@@ -1,8 +1,10 @@
 mod yaml;
+mod mem;
 
 pub use yaml::Database as YamlDatabase;
+pub use mem::Database as MemDatabase;
 
-use crate::git::Commit;
+use crate::{git::Commit, api::protocol::AddPeerError};
 
 use libp2p::PeerId;
 
@@ -16,6 +18,8 @@ pub trait Database: Send {
     /// If known, returns most recent common ancestor between the local
     /// repo and peer's repo. If unknown, returns repo root.
     fn get_most_recent_common_ancestor(&self, peer: PeerId) -> Option<Commit>;
+    /// Add a new peer with nickname to the database
+    fn add_peer(&mut self, peer_id: PeerId, nickname: String) -> Result<(), AddPeerError>;
 }
 
 impl TryFrom<PathBuf> for Box<dyn Database> {

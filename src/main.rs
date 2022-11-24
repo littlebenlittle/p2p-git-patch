@@ -92,6 +92,9 @@ mod test {
         api::{self, Client},
         Database, EagerRepository, Service,
     };
+    
+    use super::database::MemDatabase;
+    use super::api::ClientError;
 
     fn spawn_service(
         db_path: PathBuf,
@@ -105,7 +108,7 @@ mod test {
         let mut api_server = api::TestServer::new();
         let api = api_server.client()?;
         let swarm_addr = swarm_addr.parse()?;
-        let database = Box::<dyn Database>::try_from(db_path)?;
+        let database = Box::new(MemDatabase::new()) as Box::<dyn Database>;
         let repository = EagerRepository::try_from(repo_dir)?;
         let jh = async_std::task::spawn(async move {
             log::debug!("creating service in new task");
@@ -137,7 +140,29 @@ mod test {
         )?;
         log::debug!("sending shutdown...");
         api.shutdown()?;
-        log::debug!("shutdown sent...");
+        async_std::task::block_on(async move {
+            log::debug!("waiting for daemon task to finish...");
+            jh.await
+        })?;
+        Ok(())
+    }
+
+    /// can't shutdown twice
+    #[test]
+    fn no_double_shutdown() -> Result {
+        env_logger::init();
+        let tmp = TempDir::new()?;
+        log::debug!("starting service...");
+        let (mut api, jh) = spawn_service(
+            tmp.path().join("db.yaml"),
+            tmp.path().join("repo"),
+            "/ip4/127.0.0.1/tcp/0",
+            Keypair::generate_ed25519(),
+        )?;
+        log::debug!("sending shutdown...");
+        api.shutdown()?;
+        log::debug!("sending second shutdown...");
+        assert_eq!(api.shutdown(), Err(ClientError::ServiceNotConnected));
         async_std::task::block_on(async move {
             log::debug!("waiting for daemon task to finish...");
             jh.await
@@ -148,13 +173,16 @@ mod test {
     /// two daemons can find each other on loopback device via mdns
     #[test]
     fn daemons_can_connect_via_mdns() -> Result {
+        env_logger::init();
         let tmp = TempDir::new()?;
+        log::debug!("starting first service");
         let (mut api_a, jh_a) = spawn_service(
             tmp.path().join("A/db.yaml"),
             tmp.path().join("A/repo"),
             "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
+        log::debug!("starting second service");
         let (mut api_b, jh_b) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
@@ -163,12 +191,14 @@ mod test {
         )?;
         let id_a = api_a.get_id()?;
         let id_b = api_b.get_id()?;
-        api_a.add_peer(id_b, "A")?;
-        api_b.add_peer(id_a, "B")?;
-        assert_eq!(api_a.get_peer("A")?, id_a);
+        api_a.add_peer(id_b, "B")?;
+        api_b.add_peer(id_a, "A")?;
         assert_eq!(api_a.get_peer("B")?, id_b);
+        assert_eq!(api_b.get_peer("A")?, id_a);
+        log::debug!("waiting for shutdown response for first");
         api_a.shutdown()?;
-        api_a.shutdown()?;
+        log::debug!("waiting for shutdown response from second");
+        api_b.shutdown()?;
         async_std::task::block_on(async move {
             jh_a.await?;
             jh_b.await?;

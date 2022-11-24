@@ -64,7 +64,7 @@ impl<R: Repository> Service<R> {
         })
     }
 
-    pub async fn start(&mut self) -> Result<(), Box<dyn error::Error>> {
+    pub async fn start(mut self) -> Result<(), Box<dyn error::Error>> {
         log::debug!("daemon starting");
         self.swarm.listen_on(self.swarm_listen.clone())?;
         log::debug!("daemon entering main loop");
@@ -78,7 +78,8 @@ impl<R: Repository> Service<R> {
                         Update { peer } => self.update(peer, client).await,
                         Patch { peer, commit_id } => self.patch(peer, commit_id),
                         Id { nickname } => self.id(nickname, client).await,
-                        Shutdown => { self.shutdown(client).await }
+                        Shutdown => self.shutdown(client).await,
+                        AddPeer {peer_id, nickname} => self.add_peer(client, peer_id, nickname).await,
                     }
                 },
                 e = self.swarm.select_next_some() => self.handle_swarm_event(e).await
@@ -185,14 +186,26 @@ impl<R: Repository> Service<R> {
             .send_response(&client, ApiResponse::Id(response))
             .await;
     }
-    
+
+    // ---------------- Add Peer Handler ----------------
+
+    async fn add_peer(&mut self, client: ApiClientId, peer_id: PeerId, nickname: String) {
+        let res = match self.database.add_peer(peer_id, nickname) {
+            Ok(()) => ApiResponse::AddPeer(Ok(())),
+            Err(e) => ApiResponse::AddPeer(Err(e)),
+        };
+        self.api_server.send_response(&client, res).await
+    }
+
     // ---------------- Shutdown Handler ----------------
-    
+
     async fn shutdown(&mut self, client: ApiClientId) {
         self.keep_serving = false;
-        self.api_server.send_response(&client, ApiResponse::Shutdown(Ok(()))).await;
+        self.api_server
+            .send_response(&client, ApiResponse::Shutdown(Ok(())))
+            .await;
     }
-    
+
     // ---------------- Swarm Handler ----------------
 
     async fn handle_swarm_event<E>(&mut self, e: SwarmEvent<Event, E>) {

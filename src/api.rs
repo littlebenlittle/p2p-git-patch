@@ -27,37 +27,44 @@ pub trait Client {
     fn add_peer(&mut self, peer: PeerId, nickname: &str) -> ClientResult<()>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ClientError {
     RequestError(mpsc::TrySendError<protocol::Request>),
     IdError(protocol::IdError),
     ShutdownError(protocol::ShutdownError),
+    AddPeerError(protocol::AddPeerError),
     UnexpectedResponseType(protocol::Response),
-    IoError(std::io::Error),
+    IoError(String),
+    ServiceNotConnected,
 }
 
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::RequestError(e) => {
-                f.write_str("request error: ");
-                e.fmt(f);
+                f.write_str("request error: ")?;
+                e.fmt(f)
             }
             Self::IdError(e) => {
-                std::fmt::Debug::fmt(e, f);
+                std::fmt::Debug::fmt(e, f)
             }
             Self::ShutdownError(e) => {
-                std::fmt::Debug::fmt(e, f);
+                std::fmt::Debug::fmt(e, f)
+            }
+            Self::AddPeerError(e) => {
+                std::fmt::Debug::fmt(e, f)
             }
             Self::UnexpectedResponseType(resp) => {
-                f.write_str("unexpected response: ");
-                std::fmt::Debug::fmt(resp, f);
+                f.write_str("unexpected response: ")?;
+                std::fmt::Debug::fmt(resp, f)
             }
             Self::IoError(e) => {
-                std::fmt::Debug::fmt(e, f);
+                std::fmt::Debug::fmt(e, f)
+            }
+            Self::ServiceNotConnected => {
+                f.write_str("service not connected")
             }
         }
-        Ok(())
     }
 }
 
@@ -81,13 +88,18 @@ impl From<protocol::ShutdownError> for ClientError {
     }
 }
 
-impl From<std::io::Error> for ClientError {
-    fn from(e: std::io::Error) -> Self {
-        Self::IoError(e)
+impl From<protocol::AddPeerError> for ClientError {
+    fn from(e: protocol::AddPeerError) -> Self {
+        Self::AddPeerError(e)
     }
 }
 
-pub type ResponseSender = oneshot::Sender<Response>;
+impl From<std::io::Error> for ClientError {
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e.to_string())
+    }
+}
+
 pub type ClientId = u16;
 
 #[async_trait]

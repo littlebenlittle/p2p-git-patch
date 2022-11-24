@@ -62,7 +62,6 @@ impl ClientTrait for Client {
     fn shutdown(&mut self) -> ClientResult<()> {
         async_std::task::block_on(async move {
             self.api_tx.try_send(Request::Shutdown)?;
-            log::debug!("waiting for shutdown response");
             let resp = self.next_response().await?;
             match resp {
                 protocol::Response::Shutdown(r) => Ok(r?),
@@ -70,8 +69,15 @@ impl ClientTrait for Client {
             }
         })
     }
-    fn add_peer(&mut self, peer: PeerId, nickname: &str) -> ClientResult<()> {
-        unimplemented!()
+    fn add_peer(&mut self, peer_id: PeerId, nickname: &str) -> ClientResult<()> {
+        async_std::task::block_on(async move {
+            self.api_tx.try_send(Request::AddPeer { peer_id, nickname: nickname.to_owned() })?;
+            let resp = self.next_response().await?;
+            match resp {
+                protocol::Response::AddPeer(r) => Ok(r?),
+                r => Err(ClientError::UnexpectedResponseType(r)),
+            }
+        })
     }
 }
 
@@ -109,13 +115,18 @@ impl Server {
             timeout: Duration::from_secs(3),
         })
     }
+    
 }
 
 #[async_trait]
 impl ServerTrait for Server {
     async fn send_response(&mut self, client: &ClientId, res: Response) {
+        log::debug!("api server sending response to client: {res:?}");
         if let Some((tx, rx)) = self.clients.get_mut(client) {
-            tx.send(res).await;
+            match tx.send(res).await {
+                Ok(()) => {},
+                Err(e) => log::error!("{e:?}")
+            }
         }
     }
 }
@@ -126,7 +137,6 @@ impl Stream for Server {
     type Item = (ClientId, Request);
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // TODO: this polls clients in the order they were created, which is unnecessary
-        log::debug!("polling api server");
         for (client_id, (_res_tx, req_rx)) in &mut self.get_mut().clients {
             let req_rx = std::pin::Pin::new(req_rx);
             match req_rx.poll_next(cx) {
