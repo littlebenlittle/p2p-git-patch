@@ -1,11 +1,12 @@
 use super::{
-    protocol, Client as ClientTrait, ClientId, ClientResult, ClientError, Request, Response,
+    protocol, Client as ClientTrait, ClientError, ClientId, ClientResult, Request, Response,
     Server as ServerTrait, ServerError, ServerResult,
 };
 
+use async_trait::async_trait;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use futures::channel::mpsc;
+use futures::channel::mpsc::{self, Receiver, Sender};
 use futures::channel::oneshot;
 use futures::{stream::FusedStream, SinkExt, Stream, StreamExt};
 use std::collections::BTreeMap;
@@ -14,8 +15,8 @@ use std::time::Duration;
 use libp2p::PeerId;
 
 pub struct Client {
-    api_tx: mpsc::Sender<Request>,
-    api_rx: mpsc::Receiver<Response>,
+    api_tx: Sender<Request>,
+    api_rx: Receiver<Response>,
     timeout: Duration,
 }
 
@@ -61,6 +62,7 @@ impl ClientTrait for Client {
     fn shutdown(&mut self) -> ClientResult<()> {
         async_std::task::block_on(async move {
             self.api_tx.try_send(Request::Shutdown)?;
+            log::debug!("waiting for shutdown response");
             let resp = self.next_response().await?;
             match resp {
                 protocol::Response::Shutdown(r) => Ok(r?),
@@ -74,13 +76,7 @@ impl ClientTrait for Client {
 }
 
 pub struct Server {
-    clients: BTreeMap<
-        ClientId,
-        (
-            mpsc::Sender<protocol::Response>,
-            mpsc::Receiver<protocol::Request>,
-        ),
-    >,
+    clients: BTreeMap<ClientId, (Sender<protocol::Response>, Receiver<protocol::Request>)>,
     last_client_id: ClientId,
 }
 
@@ -115,7 +111,14 @@ impl Server {
     }
 }
 
-impl ServerTrait for Server {}
+#[async_trait]
+impl ServerTrait for Server {
+    async fn send_response(&mut self, client: &ClientId, res: Response) {
+        if let Some((tx, rx)) = self.clients.get_mut(client) {
+            tx.send(res).await;
+        }
+    }
+}
 
 impl Unpin for Server {}
 
@@ -123,13 +126,14 @@ impl Stream for Server {
     type Item = (ClientId, Request);
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // TODO: this polls clients in the order they were created, which is unnecessary
-        for (client_id, (_tx, rx)) in &mut self.get_mut().clients {
-            let rx = std::pin::Pin::new(rx);
-            match rx.poll_next(cx) {
+        log::debug!("polling api server");
+        for (client_id, (_res_tx, req_rx)) in &mut self.get_mut().clients {
+            let req_rx = std::pin::Pin::new(req_rx);
+            match req_rx.poll_next(cx) {
                 Poll::Pending => {}
                 Poll::Ready(req) => match req {
                     Some(r) => return Poll::Ready(Some((*client_id, r))),
-                    None => {}
+                    None => return Poll::Ready(None),
                 },
             }
         }
@@ -139,6 +143,6 @@ impl Stream for Server {
 
 impl FusedStream for Server {
     fn is_terminated(&self) -> bool {
-        unimplemented!()
+        self.clients.iter().all(|(_id, (_tx, rx))| rx.is_terminated())
     }
 }

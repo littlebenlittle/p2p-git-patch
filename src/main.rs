@@ -108,13 +108,17 @@ mod test {
         let database = Box::<dyn Database>::try_from(db_path)?;
         let repository = EagerRepository::try_from(repo_dir)?;
         let jh = async_std::task::spawn(async move {
+            log::debug!("creating service in new task");
             let mut service = Service::new(swarm_addr, keypair, api_server, database, repository)
                 .await
                 .or_else(|e| Err(format!("failed to create service: {e:?}")))?;
-            service
+            log::debug!("starting service in that task");
+            let result = service
                 .start()
                 .await
-                .or_else(|e| Err(format!("failed to create service: {e:?}")))
+                .or_else(|e| Err(format!("failed to create service: {e:?}")));
+            log::debug!("daemon task stopped");
+            result
         });
         Ok((api, jh))
     }
@@ -128,12 +132,16 @@ mod test {
         let (mut api, jh) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
         log::debug!("sending shutdown...");
         api.shutdown()?;
-        async_std::task::block_on(async move { jh.await })?;
+        log::debug!("shutdown sent...");
+        async_std::task::block_on(async move {
+            log::debug!("waiting for daemon task to finish...");
+            jh.await
+        })?;
         Ok(())
     }
 
@@ -144,13 +152,13 @@ mod test {
         let (mut api_a, jh_a) = spawn_service(
             tmp.path().join("A/db.yaml"),
             tmp.path().join("A/repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
         let (mut api_b, jh_b) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
         let id_a = api_a.get_id()?;
@@ -179,7 +187,7 @@ mod test {
         let (mut api, jh) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             keypair,
         )?;
         assert_eq!(api.get_id()?, peer_id);
@@ -196,7 +204,7 @@ mod test {
         let (mut api, jh) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
         let peer_id: PeerId = Keypair::generate_ed25519().public().to_peer_id();
@@ -215,7 +223,7 @@ mod test {
         let (mut api, jh) = spawn_service(
             tmp.path().join("db.yaml"),
             tmp.path().join("repo"),
-            "/ip4/127.0.0.1/udp/0",
+            "/ip4/127.0.0.1/tcp/0",
             Keypair::generate_ed25519(),
         )?;
         use super::api::protocol;

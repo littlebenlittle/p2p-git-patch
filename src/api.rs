@@ -1,9 +1,11 @@
 pub mod protocol;
 mod test_server;
-mod unix_socket;
+// mod unix_socket;
 
+use async_trait::async_trait;
 use crate::config::MultiaddrUnixSocket;
 use futures::channel::mpsc;
+use futures::channel::mpsc::Sender;
 use futures::channel::oneshot;
 use futures::stream::FusedStream;
 use libp2p::multiaddr::Protocol;
@@ -14,7 +16,7 @@ use std::error::Error;
 pub use protocol::{IdError, PatchError, Request, Response, UpdateError};
 pub use test_server::Client as TestClient;
 pub use test_server::Server as TestServer;
-pub use unix_socket::Server as UnixSocketServer;
+// pub use unix_socket::Server as UnixSocketServer;
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -88,7 +90,10 @@ impl From<std::io::Error> for ClientError {
 pub type ResponseSender = oneshot::Sender<Response>;
 pub type ClientId = u16;
 
-pub trait Server: FusedStream<Item = (ClientId, Request)> + Unpin + Send {}
+#[async_trait]
+pub trait Server: FusedStream<Item = (ClientId, Request)> + Unpin + Send {
+    async fn send_response(&mut self, client: &ClientId, res: Response);
+}
 
 impl TryFrom<MultiaddrUnixSocket> for Box<dyn Server> {
     type Error = Box<dyn Error>;
@@ -99,7 +104,8 @@ impl TryFrom<MultiaddrUnixSocket> for Box<dyn Server> {
                 Some(proto) => return Err(Box::new(ProtocolError::UnhandledProtocol(proto))),
                 None => return Err(Box::new(ProtocolError::EmptyProtocolString)),
             },
-            UnixSocket(path) => Box::new(UnixSocketServer::new(path)?),
+            // UnixSocket(path) => Box::new(UnixSocketServer::new(path)?),
+            _ => todo!()
         };
         Ok(server)
     }
